@@ -11,54 +11,40 @@ redirect_from:
 
 Education
 ======
-* Ph.D in Version Control Theory, GitHub University, 2018 (expected)
-* M.S. in Jekyll, GitHub University, 2014
-* B.S. in GitHub, GitHub University, 2012
+* M.S. in Computer Science, Dalhousie University, 2026 (expected)
+* B.S. in Electrical Engineering, University of Waterloo, 2018
 
 Work experience
 ======
-* Spring 2024: Academic Pages Collaborator
+* Summer 2022: Software Engineer II
   * Github University
-  * Duties includes: Updates and improvements to template
-  * Supervisor: The Users
+  * Duties includes: BingAds backend development
+  * Supervisor: Ge Gao
 
-* Fall 2015: Research Assistant
-  * Github University
-  * Duties included: Merging pull requests
-  * Supervisor: Professor Hub
+* Fall 2021: Sr. Data Engineer
+  * Royal Bank Canada
+  * Duties included: Data pipeline development
+  * Supervisor: Sanjeev Negi
 
-* Summer 2015: Research Assistant
-  * Github University
-  * Duties included: Tagging issues
-  * Supervisor: Professor Git
+* Spring 2019: Software Engineer
+  * Royal Bank Canada
+  * Duties included: Internal trading application backend software development
+  * Supervisor: Sanjeev Negi
   
 Skills
 ======
-* Skill 1
-* Skill 2
-  * Sub-skill 2.1
-  * Sub-skill 2.2
-  * Sub-skill 2.3
-* Skill 3
+* Data Analysis
+* Programing
+  * Python
+  * Java
+  * C#
+  * Angular
+  * ...
+* Communication
 
 Publications
 ======
   <ul>{% for post in site.publications reversed %}
     {% include archive-single-cv.html %}
   {% endfor %}</ul>
-  
-Talks
-======
-  <ul>{% for post in site.talks reversed %}
-    {% include archive-single-talk-cv.html  %}
-  {% endfor %}</ul>
-  
-Teaching
-======
-  <ul>{% for post in site.teaching reversed %}
-    {% include archive-single-cv.html %}
-  {% endfor %}</ul>
-  
-Service and leadership
-======
-* Currently signed in to 43 different slack teams
+
