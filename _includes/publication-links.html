@@ -1,0 +1,7 @@
+{% assign publication = include.publication %}
+<p>
+  {% if publication.paperurl %}<a href="{{ publication.paperurl | escape }}">Paper</a>{% endif %}
+  {% if publication.codeurl %}{% if publication.paperurl %} | {% endif %}<a href="{{ publication.codeurl | escape }}">Code</a>{% endif %}
+  {% if publication.doiurl %}{% if publication.paperurl or publication.codeurl %} | {% endif %}<a href="{{ publication.doiurl | escape }}">DOI</a>{% endif %}
+</p>
+{% if publication.citation %}<p><small>Recommended citation: {{ publication.citation | escape }}</small></p>{% endif %}

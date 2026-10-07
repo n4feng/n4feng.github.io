@@ -1,0 +1,4 @@
+{% assign publication = include.publication %}
+<p>{% if publication.publication_status == 'accepted' %}Accepted at <i>{{ publication.venue }}</i> (to appear){% else %}Published in <i>{{ publication.venue }}</i>{% endif %}</p>
+{% if publication.authors %}<p>{{ publication.authors | join: ', ' }}</p>{% endif %}
+{% if publication.author_note %}<p><small>{{ publication.author_note }}</small></p>{% endif %}

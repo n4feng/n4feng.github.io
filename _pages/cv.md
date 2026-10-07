@@ -11,40 +11,32 @@ redirect_from:
 
 Education
 ======
-* M.S. in Computer Science, Dalhousie University, 2026 (expected)
-* B.S. in Electrical Engineering, University of Waterloo, 2018
+* PhD in Computer Science, Dalhousie University, September 2025–present
+  * Supervised by Ga Wu
+  * Began graduate studies in September 2024; transferred to the PhD program in September 2025
+* Honours Bachelor of Applied Science in Electrical Engineering, University of Waterloo, September 2013–June 2018
 
 Work experience
 ======
-* Summer 2022: Software Engineer II
-  * Github University
-  * Duties includes: BingAds backend development
-  * Supervisor: Ge Gao
+* Software Engineer II, Microsoft, Vancouver, BC, July 2022–August 2024
+  * Developed C++ components for Bing Ads selection and built and optimized data pipelines for machine-learning training
+* Software Engineer, then Senior Data Engineer, Royal Bank of Canada (RBC), Toronto, ON, March 2019–June 2022
+  * Developed Java Spring and Kafka applications for low-latency, fault-tolerant transaction messaging and implemented batch data processing in MemSQL
 
-* Fall 2021: Sr. Data Engineer
-  * Royal Bank Canada
-  * Duties included: Data pipeline development
-  * Supervisor: Sanjeev Negi
+Research interests
+======
+* Reliable language-model systems
+* Conformal prediction and retrieval-augmented generation
+* Error attribution in multi-agent systems
 
-* Spring 2019: Software Engineer
-  * Royal Bank Canada
-  * Duties included: Internal trading application backend software development
-  * Supervisor: Sanjeev Negi
-  
 Skills
 ======
-* Data Analysis
-* Programing
-  * Python
-  * Java
-  * C#
-  * Angular
-  * ...
-* Communication
+* Programming: Python, Java, C++, C#, Angular
+* Data analysis and data engineering
 
 Publications
 ======
-  <ul>{% for post in site.publications reversed %}
+{% assign publications = site.publications | sort: "sort_order" | reverse %}
+  <ul>{% for post in publications %}
     {% include archive-single-cv.html %}
   {% endfor %}</ul>
-

@@ -8,10 +8,10 @@
 
 # Basic Site Settings
 locale                   : "en-US"
-title                    : "Naihe Feng / Master Student @ Dalhousie"
+title                    : "Naihe Feng / PhD Student @ Dalhousie"
 title_separator          : "-"
 name                     : &name "Naihe Feng"
-description              : &description "personal description"
+description              : &description "Naihe Feng is a PhD student at Dalhousie University researching reliable language-model systems."
 url                      : https://n4feng.github.io # the base hostname & protocol for your site e.g. "https://mmistakes.github.io"
 baseurl                  : "" # the subpath of your site, e.g. "/blog"
 repository               : "n4feng/n4feng.github.io"
@@ -24,7 +24,7 @@ author:
   avatar           : "profile.png"
   name             : "Naihe Feng"
   pronouns         : # example: "she/her"  
-  bio              : "1st year master student focusing on RAG System via LLM area; 5 year experience in software industry; Last work in Microsoft as SDE II / Level 61"
+  bio              : "PhD student at Dalhousie University studying reliable language-model systems, conformal prediction, and agent error attribution."
   location         : "Canada/Halifax"
   employer         : "Dalhousie University"
   uri              : # URL
@@ -32,7 +32,7 @@ author:
 
   # Academic websites
   arxiv            : # URL - Update with the correct link to your profile
-  googlescholar    : "comming soon"
+  googlescholar    :
   impactstory      : # URL
   orcid            : 
   semantic         : # URL
@@ -48,7 +48,7 @@ author:
   stackoverflow    : # User number or user number and name (i.e., use "1" or "1/jeff-atwood")    
 
   # Social media
-  bluesky          : "bsky.app" # Replace this with you Bluesky username
+  bluesky          : # Username
   facebook         : # Username
   flickr           : # Username
   foursquare       : # Username
@@ -255,14 +255,12 @@ defaults:
   #    share: true
   #    comments: true
   # _publications
-  #- scope:
-  #    path: ""
-  #    type: publications
-  #  values:
-  #    layout: single
-  #    author_profile: true
-  #    share: true
-  #    comments: true
+  - scope:
+      path: ""
+      type: publications
+    values:
+      layout: single
+      author_profile: true
   # _portfolio
   #- scope:
   #    path: ""

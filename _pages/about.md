@@ -7,10 +7,10 @@ redirect_from:
   - /about.html
 ---
 
-I am a Master's student in Computer Science at Dalhousie University, specializing in Machine Learning. My academic journey has been driven by a deep passion for optimizing large language model (LLM) making the answer more reliable and relevant to user interest.
+I am a PhD student in Computer Science at Dalhousie University, supervised by Ga Wu. My research focuses on reliable language-model systems, including conformal prediction, retrieval-augmented generation, and error attribution in multi-agent systems.
 
-My current research focuses on developing reliable framwork for evaluating factuality of LLM output. In particular, I am working on leverage related documents in retrieval-augmented generation (RAG) system to provide a better evaluation.
+Before graduate school, I worked as a Software Engineer II at Microsoft and as a Software Engineer and Senior Data Engineer at Royal Bank of Canada (RBC). I hold an Honours Bachelor of Applied Science in Electrical Engineering from the University of Waterloo.
 
-Feel free to connect with me.
+You can read more about my research on the [Publications](/publications/) page and my background in my [CV](/cv/). Feel free to [connect with me](mailto:nfeng@dal.ca).
 
-<sub>This is the front page of a website that is powered by the [Academic Pages template](https://github.com/academicpages/academicpages.github.io) and hosted on GitHub pages. </sub>
+<sub>This website is powered by the [Academic Pages template](https://github.com/academicpages/academicpages.github.io) and hosted on GitHub Pages.</sub>
