@@ -156,6 +156,7 @@ include:
   - _pages
   - files
 exclude:
+  - experiment-tracker
   - "*.sublime-project"
   - "*.sublime-workspace"
   - .asset-cache

@@ -1,0 +1,9 @@
+frontend/node_modules
+server/.venv
+server/instance
+**/__pycache__
+**/.env
+**/*.sqlite*
+**/*.db*
+**/*.secret
+**/.pytest_cache

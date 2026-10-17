@@ -1,0 +1,47 @@
+name: Experiment tracker checks
+
+on:
+  pull_request:
+    paths:
+      - 'experiment-tracker/**'
+      - 'experiments/**'
+      - '.github/workflows/experiment-tracker.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'experiment-tracker/**'
+      - 'experiments/**'
+      - '.github/workflows/experiment-tracker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: experiment-tracker/frontend/package-lock.json
+      - name: Install server dependencies
+        run: python -m pip install -r experiment-tracker/server/requirements.txt
+      - name: Test the API
+        working-directory: experiment-tracker/server
+        run: python -m unittest discover -s tests -v
+      - name: Install frontend dependencies
+        working-directory: experiment-tracker/frontend
+        run: npm ci
+      - name: Build React
+        working-directory: experiment-tracker/frontend
+        run: npm run build
+      - name: Check committed Pages assets are current
+        run: |
+          git diff --exit-code -- experiments/
+          test -z "$(git ls-files --others --exclude-standard experiments/)"

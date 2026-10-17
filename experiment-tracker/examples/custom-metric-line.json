@@ -1,0 +1,14 @@
+{
+  "metric": "latency_ms",
+  "data": [
+    {"batch_size": 1, "baseline": 72.5, "optimized": 51.3},
+    {"batch_size": 8, "baseline": 180, "optimized": 125}
+  ],
+  "plot": {
+    "type": "line",
+    "title": "Latency by batch size",
+    "description": "Compare the mean request latency of two implementations.",
+    "x_label": "Batch size",
+    "y_label": "Latency (ms)"
+  }
+}

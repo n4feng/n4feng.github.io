@@ -1,0 +1,6 @@
+{
+  "id": "latency_ms",
+  "name": "Latency",
+  "description": "Mean request latency in milliseconds; lower is better.",
+  "x_key": "batch_size"
+}

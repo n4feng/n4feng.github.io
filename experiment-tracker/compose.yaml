@@ -1,0 +1,15 @@
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      ROOT_ACCESS_CODE: ${ROOT_ACCESS_CODE:-666666}
+      DATABASE_PATH: /data/experiments.sqlite3
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://n4feng.github.io}
+    volumes:
+      - experiment-data:/data
+
+volumes:
+  experiment-data:
