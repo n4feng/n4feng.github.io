@@ -11,3 +11,14 @@ Gemfile.lock
 # Ingore files created by npm
 node_modules
 package-lock.json
+
+# Experiment tracker: source is public, runtime records and credentials are not.
+!experiment-tracker/frontend/package-lock.json
+experiment-tracker/**/.venv/
+experiment-tracker/**/__pycache__/
+experiment-tracker/**/.pytest_cache/
+experiment-tracker/**/instance/
+experiment-tracker/**/.env
+experiment-tracker/**/*.sqlite*
+experiment-tracker/**/*.db*
+experiment-tracker/**/*.secret

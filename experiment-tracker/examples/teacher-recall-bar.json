@@ -1,0 +1,55 @@
+{
+  "project": {
+    "name": "HMSB Document Retrieval Application",
+    "description": "Document retrieval experiments comparing cosine similarity, base perplexity, and weighted perplexity."
+  },
+  "experiment": {
+    "name": "teacher recall",
+    "description": "Teacher ranking comparison. The supplied metric is NDCG@k; the experiment name is retained as requested."
+  },
+  "metrics": [
+    {
+      "metric": "ndcg_at_k",
+      "data": [
+        {
+          "k": 1,
+          "cosine_ndcg": 0.5138458002987476,
+          "base_ndcg": 0.5752039526600023,
+          "weighted_ndcg": 0.6070320579110652
+        },
+        {
+          "k": 3,
+          "cosine_ndcg": 0.6768888758703948,
+          "base_ndcg": 0.7250525992014297,
+          "weighted_ndcg": 0.7556947189052264
+        },
+        {
+          "k": 5,
+          "cosine_ndcg": 0.7204136032625917,
+          "base_ndcg": 0.7620344135559811,
+          "weighted_ndcg": 0.7900924993035837
+        }
+      ],
+      "plot": {
+        "type": "bar",
+        "title": "Teacher retrieval quality",
+        "description": "NDCG at retrieval cutoffs 1, 3, and 5. Higher is better. All three supplied scoring methods are shown.",
+        "x_key": "k",
+        "x_label": "Retrieval cutoff (k)",
+        "y_label": "NDCG@k",
+        "y_min": 0,
+        "y_max": 1,
+        "series_labels": {
+          "cosine_ndcg": "Cosine similarity",
+          "base_ndcg": "Base PPL",
+          "weighted_ndcg": "Weighted PPL"
+        },
+        "colors": {
+          "cosine_ndcg": "#94a3b8",
+          "base_ndcg": "#60a5fa",
+          "weighted_ndcg": "#2dd4bf"
+        }
+      }
+    }
+  ]
+}
