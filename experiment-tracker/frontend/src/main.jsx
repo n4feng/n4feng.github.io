@@ -288,10 +288,14 @@ function Workspace({ server, token, onLogout }) {
   const [toast, setToast] = useState('');
   async function api(path, options = {}) {
     const controller = new AbortController();
+    const cancel = () => controller.abort();
+    options.signal?.addEventListener('abort', cancel, { once: true });
+    if (options.signal?.aborted) controller.abort();
     const timeout = setTimeout(() => controller.abort(), 30000);
     try {
       const response = await fetch(`${server}/api${path}`, { ...options, signal: controller.signal, headers: { Authorization: `Bearer ${token}`, ...(options.body ? { 'Content-Type': 'application/json' } : {}) }, ...(options.body ? { body: JSON.stringify(options.body) } : {}) });
       const body = await response.json().catch(() => ({}));
+      if (options.signal?.aborted) throw new DOMException('Request cancelled.', 'AbortError');
       if (response.status === 401) { onLogout('Your session has expired. Please enter your access code again.'); throw new Error('Your session has expired.'); }
       if (!response.ok) throw new Error(typeof body.error === 'string' ? body.error : body.error?.message || body.message || `The server returned ${response.status}.`);
       return body;
@@ -299,16 +303,34 @@ function Workspace({ server, token, onLogout }) {
       if (error.name === 'AbortError') throw new Error('The server took too long to respond. Please try again.');
       if (error instanceof TypeError) throw new Error('Cannot reach the experiment server. Check the server address, connection, and allowed website origin (CORS).');
       throw error;
-    } finally { clearTimeout(timeout); }
+    } finally { clearTimeout(timeout); options.signal?.removeEventListener('abort', cancel); }
   }
   useEffect(() => {
     let active = true; setLoading(true); setError(''); setSearch('');
-    Promise.all([api('/projects'), api('/metrics'), projectId ? api(`/projects/${encodeURIComponent(projectId)}`) : null, experimentId ? api(`/experiments/${encodeURIComponent(experimentId)}`) : null]).then(([allProjects, allMetrics, selectedProject, selectedExperiment]) => {
+    const controller = new AbortController();
+    const options = { signal: controller.signal };
+    async function loadExperiment() {
+      let cursor = '0';
+      let result;
+      const plots = [];
+      const visited = new Set();
+      do {
+        if (!active) return null;
+        if (visited.has(cursor)) throw new Error('The server returned a repeated page cursor. Please retry.');
+        visited.add(cursor);
+        result = await api(`/experiments/${encodeURIComponent(experimentId)}?limit=1&cursor=${encodeURIComponent(cursor)}`, options);
+        if (!active) return null;
+        plots.push(...(result.plots || []));
+        cursor = result.next_cursor;
+      } while (cursor != null);
+      return { ...result, plots, next_cursor: null };
+    }
+    Promise.all([api('/projects', options), api('/metrics', options), projectId ? api(`/projects/${encodeURIComponent(projectId)}`, options) : null, experimentId ? loadExperiment() : null]).then(([allProjects, allMetrics, selectedProject, selectedExperiment]) => {
       if (!active) return;
       setProjects(allProjects.projects || []); setMetrics(allMetrics.metrics || []); setProject(selectedProject); setExperiment(selectedExperiment);
       if (selectedExperiment && selectedExperiment.project_id !== projectId) setError('This experiment does not belong to the selected project. Return to Projects and open it again.');
     }).catch(error => { if (active) setError(error.message); }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    return () => { active = false; controller.abort(); };
   }, [projectId, experimentId, revision]);
   useEffect(() => { if (toast) { const timer = setTimeout(() => setToast(''), 4500); return () => clearTimeout(timer); } }, [toast]);
   function refresh(message = 'Saved to your workspace.') { setRevision(value => value + 1); setToast(message); }

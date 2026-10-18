@@ -56,6 +56,7 @@ CREATE INDEX IF NOT EXISTS auth_failures_client_time ON auth_failures(client, oc
 def get_db():
     if "db" not in g:
         connection = sqlite3.connect(current_app.config["DATABASE_PATH"], timeout=15)
+        connection.create_collation("NOCASE", lambda left, right: (left.casefold() > right.casefold()) - (left.casefold() < right.casefold()))
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         g.db = connection

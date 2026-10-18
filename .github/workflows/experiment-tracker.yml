@@ -30,11 +30,16 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: experiment-tracker/frontend/package-lock.json
-      - name: Install server dependencies
-        run: python -m pip install -r experiment-tracker/server/requirements.txt
-      - name: Test the API
+      - name: Install server and verification dependencies
+        run: python -m pip install -r experiment-tracker/server/requirements-dev.txt
+      - name: Test SQLite, DynamoDB, and Lambda request handling
         working-directory: experiment-tracker/server
         run: python -m unittest discover -s tests -v
+        env:
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_EC2_METADATA_DISABLED: 'true'
+      - name: Validate SAM and CloudFormation resources
+        run: cfn-lint --template experiment-tracker/template.yaml --regions us-east-1
       - name: Install frontend dependencies
         working-directory: experiment-tracker/frontend
         run: npm ci

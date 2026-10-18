@@ -10,9 +10,10 @@ import click
 from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
 
-from .db import close_db, get_db, init_db
-from .routes import api, import_records
-from .validation import plot_options, validate_data
+from .auth import LocalFailureLimiter
+from .db import close_db, init_db
+from .storage import get_store
+from .routes import api, import_records, prepare_plot
 
 
 def persistent_secret(database_path):
@@ -41,8 +42,13 @@ def persistent_secret(database_path):
 
 def create_app(config=None):
     app = Flask(__name__, static_folder=None)
+    app.json.ensure_ascii = False
     server_root = Path(__file__).resolve().parents[1]
     app.config.from_mapping(
+        STORAGE_BACKEND=os.environ.get("STORAGE_BACKEND", "sqlite"),
+        DYNAMODB_TABLE=os.environ.get("DYNAMODB_TABLE"),
+        DYNAMODB_ENDPOINT_URL=os.environ.get("DYNAMODB_ENDPOINT_URL"),
+        AWS_REGION=os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION"),
         DATABASE_PATH=os.environ.get("DATABASE_PATH", str(server_root / "instance" / "experiments.sqlite3")),
         ROOT_ACCESS_CODE=os.environ.get("ROOT_ACCESS_CODE", "666666"),
         SECRET_KEY=os.environ.get("SECRET_KEY"),
@@ -56,11 +62,22 @@ def create_app(config=None):
         app.config.update(config)
     if not isinstance(app.config["ROOT_ACCESS_CODE"], str) or not app.config["ROOT_ACCESS_CODE"]:
         raise ValueError("ROOT_ACCESS_CODE must be a nonempty string.")
-    if app.config["DATABASE_PATH"] == ":memory:":
-        raise ValueError("DATABASE_PATH must name a persistent SQLite file.")
-    app.config["DATABASE_PATH"] = str(Path(app.config["DATABASE_PATH"]).expanduser().resolve())
-    if not app.config["SECRET_KEY"]:
-        app.config["SECRET_KEY"] = persistent_secret(app.config["DATABASE_PATH"])
+    backend = app.config["STORAGE_BACKEND"]
+    if backend not in {"sqlite", "dynamodb"}:
+        raise ValueError("STORAGE_BACKEND must be 'sqlite' or 'dynamodb'.")
+    if os.environ.get("AWS_LAMBDA_FUNCTION_NAME") and backend != "dynamodb":
+        raise ValueError("Lambda requires STORAGE_BACKEND=dynamodb; SQLite is only supported locally.")
+    if backend == "dynamodb":
+        if not app.config["SECRET_KEY"]:
+            raise ValueError("SECRET_KEY is required for DynamoDB/Lambda; use a stable deployment secret.")
+        if not app.config["DYNAMODB_TABLE"]:
+            raise ValueError("DYNAMODB_TABLE is required for DynamoDB storage.")
+    else:
+        if app.config["DATABASE_PATH"] == ":memory:":
+            raise ValueError("DATABASE_PATH must name a persistent SQLite file.")
+        app.config["DATABASE_PATH"] = str(Path(app.config["DATABASE_PATH"]).expanduser().resolve())
+        if not app.config["SECRET_KEY"]:
+            app.config["SECRET_KEY"] = persistent_secret(app.config["DATABASE_PATH"])
     if not isinstance(app.config["SECRET_KEY"], str):
         raise ValueError("SECRET_KEY must be a string.")
     for key in ("SESSION_TTL_SECONDS", "AUTH_RATE_MAX_FAILURES", "AUTH_RATE_WINDOW_SECONDS"):
@@ -104,14 +121,18 @@ def create_app(config=None):
         app.logger.exception("Unhandled API error")
         return jsonify({"error": "An internal server error occurred."}), 500
 
+    app.extensions["tracker_auth_limiter"] = LocalFailureLimiter()
     app.register_blueprint(api)
     app.teardown_appcontext(close_db)
-    with app.app_context():
-        init_db()
+    if backend == "sqlite":
+        with app.app_context():
+            init_db()
 
     @app.cli.command("init-db")
     def initialize_command():
         """Create tables and built-in metrics without deleting existing records."""
+        if backend == "dynamodb":
+            raise click.ClickException("DynamoDB tables are managed by deployment infrastructure; init-db is only for local SQLite.")
         init_db()
         click.echo("Database initialized.")
 
@@ -120,22 +141,13 @@ def create_app(config=None):
     def seed_example(file_path):
         """Import the example once; matching seeded plots are not duplicated."""
         payload = json.loads(file_path.read_text())
-        db = get_db()
-        existing = db.execute(
-            "SELECT experiments.id FROM experiments JOIN projects ON projects.id = experiments.project_id WHERE projects.name = ? AND experiments.name = ?",
-            (payload["project"]["name"], payload["experiment"]["name"]),
-        ).fetchone()
+        store = get_store()
+        existing = store.find_experiment(payload["project"]["name"], payload["experiment"]["name"])
         remaining = []
         for entry in payload["metrics"]:
-            metric = db.execute("SELECT * FROM metrics WHERE id = ?", (entry["metric"],)).fetchone()
-            if metric is None:
-                raise click.ClickException(f"Unknown metric: {entry['metric']}")
-            options = plot_options(entry.get("plot", {}), metric, validate_data(entry["data"], metric))
-            candidates = db.execute(
-                "SELECT data, plot FROM plots WHERE experiment_id = ? AND metric_id = ?",
-                (existing["id"], entry["metric"]),
-            ).fetchall() if existing else []
-            if not any(json.loads(row["data"]) == entry["data"] and json.loads(row["plot"]) == options for row in candidates):
+            prepared = prepare_plot(entry)
+            candidates = existing["plots"] if existing else []
+            if not any(row["metric_id"] == prepared["metric_id"] and row["data"] == prepared["data"] and row["plot"] == prepared["plot"] for row in candidates):
                 remaining.append(entry)
         if not remaining:
             click.echo("Example already seeded; no records changed.")
