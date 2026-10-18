@@ -1,18 +1,36 @@
 # Experiment tracker
 
-A React dashboard for Naihe Feng's research experiments, backed by a Flask API and SQLite database.
+A React dashboard for Naihe Feng's research experiments, backed by a Flask API. The recommended low-traffic deployment uses **AWS Lambda + DynamoDB**; SQLite remains available for local development.
 
 The navigation is **Projects → Experiments → Metric plots**. The website supports creating projects, experiments, and metric definitions; pasting or uploading JSON; grouped bar and line plots; plot descriptions and axis labels; and viewing the underlying numbers.
 
 ## Hosting architecture
 
-GitHub Pages serves the compiled frontend at **https://n4feng.github.io/experiments/**. GitHub Pages cannot execute Python, so run the Flask API on a separate HTTPS host with persistent disk storage. The existing Jekyll academic website is retained.
+GitHub Pages serves React at **https://n4feng.github.io/experiments/** alongside the existing Jekyll academic website. A Lambda Function URL provides the Flask API's HTTPS endpoint, and DynamoDB stores experiment records. Follow [the complete AWS deployment guide](DEPLOY_AWS.md) to create the infrastructure in your own AWS account. The repository alone does not create an AWS deployment.
 
-The static HTML, JavaScript, and login screen are public. Every experiment read and write goes through the authenticated API. Runtime records are stored in SQLite, never in the React bundle or GitHub. The requested example is intentionally included as a public sample in `examples/teacher-recall-bar.json`.
+| Action | Where it runs | DynamoDB access |
+| --- | --- | --- |
+| Load HTML/CSS/JavaScript, display the login form | GitHub Pages / React | None |
+| Chart rendering, bar/line toggles, tables, SVG export, local view controls | React | None |
+| Verify the root code, issue or validate a signed session token | Flask in Lambda | None; code/signing key are environment configuration |
+| Health checks and CORS preflight requests | Flask in Lambda | None |
+| Fetch or save projects, experiments, custom metrics, plot data/options | Flask in Lambda | Business records only |
 
-The only role is **root**, with read and write access. Its default access code is `666666`; configure `ROOT_ACCESS_CODE` on the server to change it. Because the default is documented in this public repository, set a private code before storing data that needs to remain private. The browser receives a time-limited session token after login; it never contains a built-in root code.
+Opening a project or experiment can fetch its records from the API; the subsequent rendering and chart controls run in React. Keeping the login form in React does **not** move secret verification into the public JavaScript bundle. Lambda verifies the code and signed tokens without storing sessions or users in DynamoDB.
 
-## Run locally
+Static HTML, JavaScript, and the login screen are public. Every experiment read/write is authenticated. Runtime records are not added to the frontend bundle or Git history. The requested example is intentionally public in `examples/teacher-recall-bar.json`.
+
+The only role is **root**, with read and write access. Its requested default code is `666666`. The deploy helper accepts Enter to retain this default or a hidden entry for a private code; a private code is recommended for nonpublic research data. The browser receives a time-limited token and stores it in the current browser tab, never a built-in root code.
+
+## Deploy on AWS
+
+Start with [DEPLOY_AWS.md](DEPLOY_AWS.md). The supplied SAM template and deploy helper create the table, function, execution role, logs, and HTTPS Function URL. You do not need an EC2 instance, domain name, DNS record, or reverse proxy for this deployment.
+
+The architecture is intended to remain **under US$2/month with light personal usage**, but that is a usage-dependent estimate, not a billing cap. Read the deployment guide's budget and cleanup steps before deploying. DynamoDB stores experiment data only; authentication makes no database calls.
+
+After deployment, set the actual Function URL in `frontend/public/config.json`, rebuild, and commit both the source configuration and generated `experiments/` assets. Until that is done, the login page accepts a manually entered API URL. The guide includes the exact commands.
+
+## Run locally with SQLite
 
 From the repository root:
 
@@ -35,9 +53,7 @@ npm run dev
 
 Open `http://localhost:5173/experiments/`, set the API server URL to `http://localhost:8000`, and enter the access code. Local HTTP is allowed only for loopback hosts; deployed API URLs must use HTTPS.
 
-## Deploy the Flask server
-
-One supported option is Docker on a Linux server with an HTTPS reverse proxy:
+Docker Compose is also retained for local use:
 
 ```bash
 cd experiment-tracker
@@ -45,43 +61,23 @@ docker compose up --build -d
 docker compose exec api flask --app app:create_app seed-example
 ```
 
-The API binds to `127.0.0.1:8000` on the host. Point your existing HTTPS reverse proxy at this address. The `experiment-data` volume retains the database when the container is replaced. Do not remove the volume when updating the app.
+It binds the API to `127.0.0.1:8000` and keeps SQLite in the `experiment-data` volume. Do not remove that volume when updating a local workspace. Compose restricts browser CORS to the published GitHub site by default; use the Python development command above for the local Vite frontend, or explicitly add its origin to Compose's `CORS_ORIGINS`.
 
-The container uses Gunicorn, not Flask's development server. A Python-capable host can also run this from `experiment-tracker/server`:
-
-```bash
-gunicorn --bind 127.0.0.1:8000 --workers 2 --threads 2 'app:create_app()'
-```
-
-Set `DATABASE_PATH` to a persistent, writable disk path and `CORS_ORIGINS` to `https://n4feng.github.io`. Keep database backups outside this public repository. Use SQLite's online backup API or stop writes while taking a filesystem backup; copying only the main file during WAL writes can omit recent records.
-
-| Server setting | Default | Purpose |
+| Server setting | Default / deployment value | Purpose |
 | --- | --- | --- |
-| `ROOT_ACCESS_CODE` | `666666` | Root read/write access code |
-| `DATABASE_PATH` | `server/instance/experiments.sqlite3` | Persistent SQLite file; Docker uses `/data/experiments.sqlite3` |
-| `SECRET_KEY` | Generated and saved beside the database | Signs browser sessions; keep the `.secret` file private and persistent |
-| `CORS_ORIGINS` | GitHub site plus localhost development origins | Exact comma-separated browser origins; Compose limits this to the GitHub site |
-| `SESSION_TTL_SECONDS` | `43200` | Browser session lifetime: 12 hours |
-| `AUTH_RATE_MAX_FAILURES` | `5` | Failed code attempts allowed per client within the window |
-| `AUTH_RATE_WINDOW_SECONDS` | `60` | Failed authentication window in seconds |
+| `STORAGE_BACKEND` | `sqlite` locally; `dynamodb` in SAM | Selects the data store |
+| `DYNAMODB_TABLE` | Table created by SAM | AWS experiment records |
+| `ROOT_ACCESS_CODE` | `666666` unless changed | Root read/write access code |
+| `SECRET_KEY` | Generated once by the deploy helper; reused on updates | Signs stateless sessions; required with DynamoDB |
+| `DATABASE_PATH` | `server/instance/experiments.sqlite3` locally | Local SQLite database; Docker uses `/data/experiments.sqlite3` |
+| `CORS_ORIGINS` | AWS: `https://n4feng.github.io` | Exact allowed browser origins, without URL paths |
+| `SESSION_TTL_SECONDS` | `43200` | Session lifetime: 12 hours |
+| `AUTH_RATE_MAX_FAILURES` | `5` | Failed code attempts allowed per client within a window |
+| `AUTH_RATE_WINDOW_SECONDS` | `60` | Authentication failure window in seconds |
 
-Code rotation invalidates existing sessions. The API uses no authentication cookies. Behind a reverse proxy, the default rate limit sees the proxy's address, so its failure budget is shared by proxied visitors; configure trustworthy client-IP forwarding deliberately if you need per-visitor limits. Never trust arbitrary forwarded headers from the public internet.
+SQLite development generates and saves its signing secret beside the database if none is configured. Lambda always uses the stable environment secret; it never uses `/tmp` as a persistent database or key store. Code or signing-key rotation invalidates existing sessions. Authentication uses no cookies. The in-memory failed-login budget is local to a running process/Lambda environment, not a global distributed limit; it creates no DynamoDB records.
 
-After the API has a real HTTPS URL, put that URL in `frontend/public/config.json`:
-
-```json
-{"apiBaseUrl": "https://YOUR-API-HOST"}
-```
-
-Then rebuild and commit the source and generated assets:
-
-```bash
-cd experiment-tracker/frontend
-npm ci
-npm run build
-```
-
-Vite outputs to the repository's `experiments/` directory. Commit both `experiment-tracker/frontend/` and `experiments/` when making frontend changes. Jekyll copies the built page and assets; it excludes `experiment-tracker/` source and examples from the published website. Hash navigation keeps deep links compatible with GitHub Pages. Until a deployment URL is configured, visitors can enter the API URL on the login page.
+Keep local databases and backups outside this public repository. For SQLite backups use its online backup API, or stop writes before copying files; copying only the main database during WAL writes can lose recent records. The [authenticated JSON backup tool](DEPLOY_AWS.md#back-up-and-restore-experiment-data) also works with the local API.
 
 ## Complete bar-plot upload
 
@@ -124,7 +120,7 @@ Use your configured root code instead of `666666` if changed. Run this command f
 }
 ```
 
-Change `"type": "bar"` to `"type": "line"` for a line plot. Omitting the entire `plot` object uses defaults. The seed command imports the checked-in example once; its chart uses the complete supplied values without rounding the stored data.
+Change `"type": "bar"` to `"type": "line"` for a line plot. Omitting the entire `plot` object uses defaults. The seed commands skip an identical checked-in example; its chart uses the complete supplied values without rounding the stored data.
 
 ## Metric data formats
 
@@ -148,6 +144,12 @@ Then upload it with its declared x field and any numeric series:
 {"metric": "latency_ms", "data": [{"batch_size": 1, "baseline": 72.5, "optimized": 51.3}, {"batch_size": 8, "baseline": 180, "optimized": 125}], "plot": {"type": "line", "x_label": "Batch size", "y_label": "Latency (ms)"}}
 ```
 
+## Size and transaction limits
+
+All deployments accept JSON requests up to **4 MiB**, with at most **100 plots per import**, **10,000 rows per plot**, and **64 numeric series per plot**. Every row must include its metric's x field and at least one finite score. An omitted series is a gap; an explicit `null` is not a numeric score.
+
+The AWS backend compresses and chunks plot data instead of assuming a full experiment fits in one DynamoDB item. A normalized import batch must compress to at most **3,500 KiB**, split into chunks of at most **250 KiB**. Oversized imports are rejected before publication; failed imports never expose a partial project, experiment, or plot. See [AWS deployment and limits](DEPLOY_AWS.md#data-limits-and-atomic-imports) for storage-specific limits. Split large exports into multiple experiment requests when necessary. The browser and backup tool fetch experiment plots one page at a time to stay below Lambda's buffered response limit.
+
 ## API reference
 
 All routes below except health and session creation require `Authorization: Bearer TOKEN` or `X-Access-Code: CODE`. A session is created with `POST /api/auth/session` and JSON `{"code":"666666"}`; its response contains `token`.
@@ -165,6 +167,8 @@ All routes below except health and session creation require `Authorization: Bear
 | PATCH | `/api/plots/<id>` | Update `{plot: {...}}` options |
 | POST | `/api/import` | Atomically import a project, experiment, and metric plots |
 
+Experiment reads support `GET /api/experiments/<id>?limit=1&cursor=0`. Follow the returned `next_cursor` until it is `null`; `plot_count` is the total, while `plots` contains the current page. The React frontend and backup tool assemble these pages automatically. Without pagination parameters, the endpoint retains its original full-response behavior, which can exceed Lambda's response limit for a large experiment.
+
 Create requests for projects and experiments use `{"name":"...","description":"..."}`. All mutations return JSON. Invalid input fails with an actionable error; a failed multi-plot import leaves no partially created project, experiment, or plot behind.
 
 ## Checks
@@ -177,7 +181,7 @@ npm ci
 npm run build
 ```
 
-The GitHub Actions workflow checks the API, builds React, and checks that committed Pages assets match the frontend source.
+The GitHub Actions workflow checks the API and Lambda/DynamoDB paths, builds React, and checks that committed Pages assets match the frontend source. These checks do not deploy AWS resources.
 
 ## References
 

@@ -22,3 +22,7 @@ experiment-tracker/**/.env
 experiment-tracker/**/*.sqlite*
 experiment-tracker/**/*.db*
 experiment-tracker/**/*.secret
+experiment-tracker/.aws-sam/
+experiment-tracker/samconfig.toml
+experiment-tracker/tracker-backup*.json
+experiment-tracker/.deploy-*.json

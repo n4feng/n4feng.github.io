@@ -1,21 +1,49 @@
 import copy
+import gzip
 import json
+import random
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
+import boto3
+from moto import mock_aws
+
 from tracker import create_app
 from tracker.auth import issue_token, serializer
-from tracker.db import get_db
+from tracker.auth import require_auth
 
 
-class TrackerTests(unittest.TestCase):
+class TrackerContract:
+    """The same HTTP contract must work with both persistent stores."""
+
+    storage_backend = "sqlite"
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
         self.database_path = str(Path(self.directory.name) / "experiments.sqlite3")
-        self.config = {"TESTING": True, "DATABASE_PATH": self.database_path, "ROOT_ACCESS_CODE": "666666"}
+        self.config = {
+            "TESTING": True, "STORAGE_BACKEND": self.storage_backend,
+            "DATABASE_PATH": self.database_path, "ROOT_ACCESS_CODE": "666666",
+        }
+        if self.storage_backend == "dynamodb":
+            mocked_aws = mock_aws()
+            mocked_aws.start()
+            self.addCleanup(mocked_aws.stop)
+            self.dynamo = boto3.client("dynamodb", region_name="us-east-1")
+            self.dynamo.create_table(
+                TableName="experiment-tests",
+                KeySchema=[{"AttributeName": "PK", "KeyType": "HASH"}, {"AttributeName": "SK", "KeyType": "RANGE"}],
+                AttributeDefinitions=[{"AttributeName": "PK", "AttributeType": "S"}, {"AttributeName": "SK", "AttributeType": "S"}],
+                BillingMode="PAY_PER_REQUEST",
+            )
+            self.config.update({
+                "DYNAMODB_TABLE": "experiment-tests", "DYNAMODB_CLIENT": self.dynamo,
+                "AWS_REGION": "us-east-1", "SECRET_KEY": "stable-signing-key-for-isolated-tests-only",
+            })
         self.app = create_app(self.config)
         self.client = self.app.test_client()
         self.headers = {"X-Access-Code": "666666"}
@@ -36,9 +64,6 @@ class TrackerTests(unittest.TestCase):
                 },
             }],
         }
-
-    def tearDown(self):
-        self.directory.cleanup()
 
     def upload(self, payload=None):
         return self.client.post("/api/import", json=payload or self.sample, headers=self.headers)
@@ -86,21 +111,23 @@ class TrackerTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/projects", headers=self.headers).status_code, 401)
         self.assertEqual(self.client.get("/api/projects", headers={"X-Access-Code": "new-secret"}).status_code, 200)
 
-    def test_failure_limit_covers_login_and_direct_code_across_workers(self):
-        for _ in range(3):
-            self.assertEqual(self.client.post("/api/auth/session", json={"code": "bad"}).status_code, 401)
-        for _ in range(2):
-            self.assertEqual(self.client.get("/api/projects", headers={"X-Access-Code": "bad"}).status_code, 401)
-        second_worker = create_app(self.config).test_client()
-        response = second_worker.post("/api/auth/session", json={"code": "666666"})
-        self.assertEqual(response.status_code, 429)
-        self.assertGreaterEqual(int(response.headers["Retry-After"]), 1)
-        # Caller-controlled forwarding headers cannot reset the source address.
-        self.assertEqual(second_worker.get("/api/projects", headers={**self.headers, "X-Forwarded-For": "192.0.2.8"}).status_code, 429)
-        with self.app.app_context():
-            with get_db():
-                get_db().execute("UPDATE auth_failures SET occurred_at = occurred_at - 61")
-        self.assertEqual(second_worker.get("/api/projects", headers=self.headers).status_code, 200)
+    def test_local_failure_limit_covers_login_and_direct_code_and_expires(self):
+        # Authentication deliberately uses no persistent store. Limits apply to
+        # one execution environment, not globally across Lambda instances.
+        with patch("tracker.auth.time.time", return_value=1_000_000):
+            for _ in range(3):
+                self.assertEqual(self.client.post("/api/auth/session", json={"code": "bad"}).status_code, 401)
+            for _ in range(2):
+                self.assertEqual(self.client.get("/api/projects", headers={"X-Access-Code": "bad"}).status_code, 401)
+            response = self.client.post("/api/auth/session", json={"code": "666666"})
+            self.assertEqual(response.status_code, 429)
+            self.assertGreaterEqual(int(response.headers["Retry-After"]), 1)
+            # Caller-controlled forwarding headers cannot reset source identity.
+            self.assertEqual(self.client.get("/api/projects", headers={**self.headers, "X-Forwarded-For": "192.0.2.8"}).status_code, 429)
+            second_worker = create_app(self.config).test_client()
+            self.assertEqual(second_worker.post("/api/auth/session", json={"code": "666666"}).status_code, 200)
+        with patch("tracker.auth.time.time", return_value=1_000_061):
+            self.assertEqual(self.client.get("/api/projects", headers=self.headers).status_code, 200)
 
     def test_import_roundtrips_all_series_precision_and_plot_metadata(self):
         response = self.upload()
@@ -210,7 +237,10 @@ class TrackerTests(unittest.TestCase):
         response = restarted.test_client().get(f"/api/experiments/{result['experiment_id']}", headers={"Authorization": f"Bearer {token}"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json["plot_count"], 1)
-        self.assertEqual(Path(f"{self.database_path}.secret").stat().st_mode & 0o777, 0o600)
+        if self.storage_backend == "sqlite":
+            self.assertEqual(Path(f"{self.database_path}.secret").stat().st_mode & 0o777, 0o600)
+        else:
+            self.assertFalse(Path(f"{self.database_path}.secret").exists())
 
     def test_cors_allows_only_exact_trusted_origins_without_credentials(self):
         for origin in ("https://n4feng.github.io", "http://localhost:5173", "http://127.0.0.1:5173"):
@@ -253,6 +283,195 @@ class TrackerTests(unittest.TestCase):
         response = self.client.get("/api/projects/missing", headers=self.headers)
         self.assertEqual(response.status_code, 404)
         self.assertIn("error", response.json)
+
+    def test_concurrent_case_insensitive_project_creation_has_one_winner(self):
+        workers = [create_app(self.config) for _ in range(4)]
+
+        def create(index):
+            return workers[index].test_client().post(
+                "/api/projects", json={"name": "Concurrent" if index % 2 else "concurrent"}, headers=self.headers,
+            ).status_code
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            statuses = list(executor.map(create, range(4)))
+        self.assertEqual(sorted(statuses), [201, 409, 409, 409])
+        projects = self.client.get("/api/projects", headers=self.headers).json["projects"]
+        self.assertEqual(len(projects), 1)
+
+    def test_concurrent_imports_never_split_project_or_experiment_identity(self):
+        workers = [create_app(self.config) for _ in range(4)]
+
+        def upload(index):
+            return workers[index].test_client().post("/api/import", json=self.sample, headers=self.headers)
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            responses = list(executor.map(upload, range(4)))
+        for response in responses:
+            self.assertIn(response.status_code, (201, 409), response.json)
+        successful = [response.json for response in responses if response.status_code == 201]
+        self.assertTrue(successful)
+        self.assertEqual(len({item["project_id"] for item in successful}), 1)
+        self.assertEqual(len({item["experiment_id"] for item in successful}), 1)
+        projects = self.client.get("/api/projects", headers=self.headers).json["projects"]
+        self.assertEqual(len(projects), 1)
+        self.assertEqual(projects[0]["experiment_count"], 1)
+        experiment = self.client.get(f"/api/experiments/{successful[0]['experiment_id']}", headers=self.headers).json
+        self.assertEqual(experiment["plot_count"], len(successful))
+
+    def test_experiment_pages_cross_batch_boundaries_without_losing_plots(self):
+        first_payload = copy.deepcopy(self.sample)
+        first_payload["metrics"] = [copy.deepcopy(self.sample["metrics"][0]) for _ in range(3)]
+        for index, metric in enumerate(first_payload["metrics"]):
+            metric["plot"]["title"] = f"First batch {index}"
+        first = self.upload(first_payload).json
+        self.assertEqual(self.upload().status_code, 201)
+        path = f"/api/experiments/{first['experiment_id']}"
+        complete = self.client.get(path, headers=self.headers).json
+        page_one = self.client.get(f"{path}?limit=2", headers=self.headers).json
+        page_two = self.client.get(f"{path}?limit=2&cursor={page_one['next_cursor']}", headers=self.headers).json
+        self.assertEqual(page_one["plot_count"], 4)
+        self.assertEqual(page_two["plot_count"], 4)
+        self.assertEqual(page_one["next_cursor"], "2")
+        self.assertIsNone(page_two["next_cursor"])
+        self.assertEqual(page_one["plots"] + page_two["plots"], complete["plots"])
+        past_end = self.client.get(f"{path}?limit=1&cursor=50", headers=self.headers).json
+        self.assertEqual(past_end["plots"], [])
+        self.assertEqual(past_end["plot_count"], 4)
+        self.assertIsNone(past_end["next_cursor"])
+
+    def test_empty_experiment_pagination_and_invalid_page_arguments(self):
+        project = self.client.post("/api/projects", json={"name": "Empty project"}, headers=self.headers).json
+        experiment = self.client.post(f"/api/projects/{project['id']}/experiments", json={"name": "Empty experiment"}, headers=self.headers).json
+        path = f"/api/experiments/{experiment['id']}"
+        result = self.client.get(f"{path}?limit=1", headers=self.headers)
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.json["plots"], [])
+        self.assertEqual(result.json["plot_count"], 0)
+        self.assertIsNone(result.json["next_cursor"])
+        for query in ("limit=0", "limit=101", "limit=1.5", "limit=no", "cursor=-1", "cursor=no", f"cursor={2 ** 63}"):
+            with self.subTest(query=query):
+                invalid = self.client.get(f"{path}?{query}", headers=self.headers)
+                self.assertEqual(invalid.status_code, 400)
+                self.assertIn("error", invalid.json)
+
+
+class SQLiteTrackerTests(TrackerContract, unittest.TestCase):
+    storage_backend = "sqlite"
+
+
+class DynamoDBTrackerTests(TrackerContract, unittest.TestCase):
+    storage_backend = "dynamodb"
+
+    def test_cold_start_and_authentication_never_call_dynamodb(self):
+        with patch("botocore.client.BaseClient._make_api_call", side_effect=AssertionError("Authentication must not call DynamoDB")) as operations:
+            application = create_app(self.config)
+
+            @application.get("/auth-only-test")
+            @require_auth
+            def auth_only():
+                return {"authenticated": True}
+
+            client = application.test_client()
+            login = client.post("/api/auth/session", json={"code": "666666"})
+            self.assertEqual(login.status_code, 200)
+            token = login.json["token"]
+            self.assertEqual(client.get("/auth-only-test", headers={"Authorization": f"Bearer {token}"}).status_code, 200)
+            self.assertEqual(client.get("/auth-only-test", headers=self.headers).status_code, 200)
+            self.assertEqual(client.get("/api/health").status_code, 200)
+            self.assertEqual(client.options("/api/projects", headers={"Origin": "https://n4feng.github.io"}).status_code, 204)
+            self.assertEqual(client.get("/api/projects").status_code, 401)
+            self.assertEqual(client.get("/api/projects", headers={"Authorization": "Bearer invalid"}).status_code, 401)
+            self.assertEqual(client.get("/api/projects", headers={"X-Access-Code": "bad"}).status_code, 401)
+            self.assertEqual(client.post("/api/auth/session", json={"code": "bad"}).status_code, 401)
+            for _ in range(3):
+                self.assertEqual(client.post("/api/auth/session", json={"code": "bad"}).status_code, 401)
+            self.assertEqual(client.post("/api/auth/session", json={"code": "bad"}).status_code, 429)
+            operations.assert_not_called()
+
+    def test_dynamodb_requires_a_stable_configured_signing_secret(self):
+        with patch.dict("os.environ", {"SECRET_KEY": ""}):
+            with self.assertRaises(ValueError):
+                create_app({**self.config, "SECRET_KEY": None})
+
+    def test_lambda_cannot_silently_fall_back_to_sqlite(self):
+        with patch.dict("os.environ", {"AWS_LAMBDA_FUNCTION_NAME": "experiment-api"}):
+            with self.assertRaises(ValueError):
+                create_app({**self.config, "STORAGE_BACKEND": "sqlite"})
+
+    def test_query_pagination_preserves_all_projects_experiments_and_plots(self):
+        result = self.upload().json
+        for index in range(4):
+            self.assertEqual(self.client.post("/api/projects", json={"name": f"Extra project {index}"}, headers=self.headers).status_code, 201)
+            self.assertEqual(self.client.post(f"/api/projects/{result['project_id']}/experiments", json={"name": f"Extra experiment {index}"}, headers=self.headers).status_code, 201)
+            self.assertEqual(self.client.post(f"/api/experiments/{result['experiment_id']}/plots", json=self.sample["metrics"][0], headers=self.headers).status_code, 201)
+
+        actual_query = self.dynamo.query
+        pages_with_continuation = []
+
+        def short_page(**kwargs):
+            kwargs["Limit"] = 2
+            page = actual_query(**kwargs)
+            if page.get("LastEvaluatedKey"):
+                pages_with_continuation.append(page["LastEvaluatedKey"])
+            return page
+
+        with patch.object(self.dynamo, "query", side_effect=short_page):
+            projects = self.client.get("/api/projects", headers=self.headers).json["projects"]
+            project = self.client.get(f"/api/projects/{result['project_id']}", headers=self.headers).json
+            experiment = self.client.get(f"/api/experiments/{result['experiment_id']}", headers=self.headers).json
+        self.assertEqual(len(projects), 5)
+        self.assertEqual(project["experiment_count"], 5)
+        self.assertEqual(len(project["experiments"]), 5)
+        self.assertEqual(experiment["plot_count"], 5)
+        self.assertEqual(len(experiment["plots"]), 5)
+        self.assertGreaterEqual(len(pages_with_continuation), 3)
+
+    def test_large_plot_crosses_dynamodb_item_limit_and_roundtrips_exactly(self):
+        generator = random.Random(8426)
+        rows = [{"k": index + 1, **{f"method_{series}": generator.random() for series in range(8)}} for index in range(6000)]
+        raw = json.dumps(rows).encode()
+        self.assertGreater(len(raw), 400 * 1024)
+        # This input also crosses the chunk boundary after compression.
+        self.assertGreater(len(gzip.compress(raw)), 250 * 1024)
+        payload = copy.deepcopy(self.sample)
+        payload["metrics"][0] = {"metric": "ndcg_at_k", "data": rows, "plot": {"type": "line"}}
+        result = self.upload(payload)
+        self.assertEqual(result.status_code, 201, result.json)
+        experiment = self.client.get(f"/api/experiments/{result.json['experiment_id']}", headers=self.headers).json
+        self.assertEqual(experiment["plots"][0]["data"], rows)
+        batch_id = result.json["plot_ids"][0].rsplit("-", 1)[0]
+        chunks = self.dynamo.query(
+            TableName=self.config["DYNAMODB_TABLE"], KeyConditionExpression="PK = :pk AND begins_with(SK, :chunk)",
+            ExpressionAttributeValues={":pk": {"S": f"BATCH#{batch_id}"}, ":chunk": {"S": "CHUNK#"}},
+        )["Items"]
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all("expires_at" not in chunk for chunk in chunks), "Published chunks must never expire")
+        # Editing metadata must not truncate or rewrite only the first chunk.
+        updated = self.client.patch(f"/api/plots/{result.json['plot_ids'][0]}", json={"plot": {"description": "Large plot updated"}}, headers=self.headers)
+        self.assertEqual(updated.status_code, 200, updated.json)
+        self.assertEqual(updated.json["data"], rows)
+
+    def test_oversized_request_fails_without_partial_business_records(self):
+        response = self.client.post("/api/import", data=json.dumps({"padding": "x" * (4 * 1024 * 1024)}), content_type="application/json", headers=self.headers)
+        self.assertEqual(response.status_code, 413)
+        self.assertIn("error", response.json)
+        self.assertEqual(self.client.get("/api/projects", headers=self.headers).json["projects"], [])
+
+    def test_failed_publication_keeps_staged_chunks_invisible_and_expiring(self):
+        with patch("tracker.dynamo.DynamoStore._transact", return_value=False), patch("tracker.dynamo.time.sleep"):
+            response = self.upload()
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.client.get("/api/projects", headers=self.headers).json["projects"], [])
+        staged = self.dynamo.scan(TableName=self.config["DYNAMODB_TABLE"])["Items"]
+        self.assertTrue(staged)
+        self.assertTrue(all(item["SK"]["S"].startswith("CHUNK#") and "expires_at" in item for item in staged))
+        # A later retry publishes only its complete batch; abandoned staging
+        # records never appear in counts or experiment data.
+        result = self.upload()
+        self.assertEqual(result.status_code, 201, result.json)
+        experiment = self.client.get(f"/api/experiments/{result.json['experiment_id']}", headers=self.headers).json
+        self.assertEqual(experiment["plot_count"], 1)
+        self.assertEqual(experiment["plots"][0]["data"], self.sample["metrics"][0]["data"])
 
 
 if __name__ == "__main__":
