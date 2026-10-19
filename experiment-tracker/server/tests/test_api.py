@@ -292,9 +292,10 @@ class TrackerContract:
                 "/api/projects", json={"name": "Concurrent" if index % 2 else "concurrent"}, headers=self.headers,
             ).status_code
 
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            statuses = list(executor.map(create, range(4)))
+        statuses, transactions = self.competing_requests(create)
         self.assertEqual(sorted(statuses), [201, 409, 409, 409])
+        if transactions is not None:
+            self.assertEqual(transactions.count(False), 3)
         projects = self.client.get("/api/projects", headers=self.headers).json["projects"]
         self.assertEqual(len(projects), 1)
 
@@ -304,12 +305,14 @@ class TrackerContract:
         def upload(index):
             return workers[index].test_client().post("/api/import", json=self.sample, headers=self.headers)
 
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            responses = list(executor.map(upload, range(4)))
+        responses, transactions = self.competing_requests(upload)
         for response in responses:
             self.assertIn(response.status_code, (201, 409), response.json)
         successful = [response.json for response in responses if response.status_code == 201]
         self.assertTrue(successful)
+        if transactions is not None:
+            self.assertEqual(len(successful), 4)
+            self.assertGreaterEqual(transactions.count(False), 3)
         self.assertEqual(len({item["project_id"] for item in successful}), 1)
         self.assertEqual(len({item["experiment_id"] for item in successful}), 1)
         projects = self.client.get("/api/projects", headers=self.headers).json["projects"]
@@ -317,6 +320,40 @@ class TrackerContract:
         self.assertEqual(projects[0]["experiment_count"], 1)
         experiment = self.client.get(f"/api/experiments/{successful[0]['experiment_id']}", headers=self.headers).json
         self.assertEqual(experiment["plot_count"], len(successful))
+        self.assertEqual({plot["id"] for plot in experiment["plots"]}, {plot_id for result in successful for plot_id in result["plot_ids"]})
+
+    def competing_requests(self, operation):
+        if self.storage_backend == "sqlite":
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                return list(executor.map(operation, range(4))), None
+
+        from tracker.dynamo import DynamoStore
+
+        # Moto explicitly does not support multithreaded use:
+        # https://docs.getmoto.org/en/latest/docs/faq.html
+        # Its transaction rollback restores a whole-table snapshot, which can
+        # erase another thread's already committed writes. Interleave requests
+        # at the transaction boundary instead: each request prepares its reads
+        # and writes before the next request commits, then submits its stale
+        # conditions to the real Moto transaction implementation. This tests
+        # CAS failures and application retries without overlapping simulator
+        # transactions or serializing entire application requests.
+        transact = DynamoStore._transact
+        waiting = iter(range(1, 4))
+        responses = []
+        transactions = []
+
+        def interleave(store, actions):
+            index = next(waiting, None)
+            if index is not None:
+                responses.append(operation(index))
+            committed = transact(store, actions)
+            transactions.append(committed)
+            return committed
+
+        with patch.object(DynamoStore, "_transact", interleave):
+            responses.append(operation(0))
+        return responses, transactions
 
     def test_experiment_pages_cross_batch_boundaries_without_losing_plots(self):
         first_payload = copy.deepcopy(self.sample)
