@@ -155,7 +155,7 @@ Build with a Node.js version supported by the frontend's Vite dependency, such a
 
 Wait for the repository's checks and Pages deployment to finish, then refresh the website. If the browser remembers an older manually entered URL, sign out and replace that value on the login screen. The API URL is public configuration; never put an access code or signing key into either JSON file.
 
-Verify the full workflow in the website: sign in, open the project, open **teacher recall**, inspect all three NDCG series, switch bar/line views, and open the exact-values table. Creating a project or custom metric should persist after refresh. The chart controls themselves do not call DynamoDB.
+Verify the full workflow in the website: sign in, open the project, open **teacher recall**, inspect all three NDCG series, switch bar/line views, and open the exact-values table. Creating a project or custom metric should persist after refresh. Chart previews and view controls do not call DynamoDB. In **View data**, dragging series columns previews their order locally; **Save order** writes the chosen array to the plot settings in DynamoDB.
 
 ## Update or rotate credentials
 
@@ -166,7 +166,7 @@ git pull --ff-only
 python3 scripts/deploy_aws.py --region "$AWS_REGION" --stack-name experiment-tracker
 ```
 
-Review the change set before confirming. The existing DynamoDB table and secrets are reused. If you intend to change credentials:
+Review the change set before confirming. The existing DynamoDB table and secrets are reused. Deploy this backend update to enable **View data → Save order** (`plot.series_order`); GitHub Pages updates alone cannot enable the new server validation. No table migration is required. After deployment, save an order and reload the experiment to confirm it persists. If you intend to change credentials:
 
 ```bash
 python3 scripts/deploy_aws.py --region "$AWS_REGION" --stack-name experiment-tracker --rotate-access-code

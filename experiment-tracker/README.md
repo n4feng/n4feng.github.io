@@ -2,7 +2,7 @@
 
 A React dashboard for Naihe Feng's research experiments, backed by a Flask API. The recommended low-traffic deployment uses **AWS Lambda + DynamoDB**; SQLite remains available for local development.
 
-The navigation is **Projects → Experiments → Metric plots**. The website supports creating projects, experiments, and metric definitions; pasting or uploading JSON; grouped bar and line plots; plot descriptions and axis labels; and viewing the underlying numbers.
+The navigation is **Projects → Experiments → Metric plots**. The website supports creating projects, experiments, and metric definitions; pasting or uploading JSON; grouped bar and line plots; plot descriptions and axis labels; and viewing and reordering the underlying data columns.
 
 ## Hosting architecture
 
@@ -157,6 +157,24 @@ Open **Edit plot details → Series labels, colors, and advanced options**. On *
 The website sends the complete resulting settings, including empty label/color maps when omitted from the JSON. Deleting a series entry removes that saved override; deleting `series_labels` or `colors` resets that whole map. Use `{}` to clear both maps while retaining the values in the visible form fields. The server validates the settings again and stores them; reopening the plot or refreshing reads the saved settings.
 
 Direct API `PATCH` requests retain their partial-update behavior: omitted top-level options are preserved, while supplied `series_labels` and `colors` objects replace their entire previous maps. Send `{}` for a map or `null` for an axis bound to clear it.
+
+## Arrange columns and chart series
+
+Open a plot's **View data**, then drag a series column header to its new position. The arrow buttons also work with keyboard or touch. The x-axis column stays first. The table, chart, legend, and SVG export preview the new order immediately, with each series keeping its color. Click **Save order** to persist the arrangement; **Undo changes** restores the saved order. Dragging and previewing are local; saving performs one authenticated API update. Failed saves keep the draft and show an error.
+
+Order is stored as the `plot.series_order` array in DynamoDB (or SQLite locally). It survives refreshes, new browser sessions, and edits to other plot details. JSON object key order in `series_labels` and `colors` has no effect on series order. This partial update sets the example's order without changing labels, colors, or data:
+
+```json
+{
+  "plot": {
+    "series_order": ["cosine_ndcg", "base_ndcg", "weighted_ndcg"]
+  }
+}
+```
+
+Send it to `PATCH /api/plots/<id>`, or include `series_order` in `plot` when uploading data. Entries must be unique, existing series keys; do not include the x-axis key. A partial list puts those series first and appends the remaining series automatically. An empty array resets automatic order. Omitting this option preserves the existing order, including when removing it from the advanced JSON editor.
+
+**Existing AWS deployments need the updated Lambda backend before Save order will work.** Pull this code and follow [Update or rotate credentials](DEPLOY_AWS.md#update-or-rotate-credentials), using your existing stack name and region. The update reuses the current table; no data migration is needed. Until the backend is updated, the website displays an actionable error when saving order and keeps the draft for retrying.
 
 ## API reference
 
