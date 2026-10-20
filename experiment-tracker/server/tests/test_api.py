@@ -229,6 +229,78 @@ class TrackerContract:
                 response = self.client.patch(f"/api/plots/{plot_id}", json={"plot": options}, headers=self.headers)
                 self.assertEqual(response.status_code, 400, response.json)
 
+    def test_full_plot_snapshot_replaces_options_and_survives_app_restart(self):
+        result = self.upload().json
+        experiment_path = f"/api/experiments/{result['experiment_id']}"
+        original = self.client.get(experiment_path, headers=self.headers).json["plots"][0]
+        plot_path = f"/api/plots/{original['id']}"
+        replacement = {
+            "type": "line", "title": "Revised teacher comparison",
+            "description": "Options supplied by the JSON editor.", "x_key": "k",
+            "x_label": "Cutoff", "y_label": "Normalized gain",
+            "y_min": 0.4, "y_max": 0.95,
+            "series_labels": {"cosine_ndcg": "Cosine", "base_ndcg": "Base model"},
+            "colors": {"cosine_ndcg": "#ab1234", "base_ndcg": "#12ab34"},
+        }
+        # A complete snapshot replaces existing maps, including removal of the
+        # original weighted_ndcg label/color rather than merging those back in.
+        saved = self.client.patch(plot_path, json={"plot": replacement}, headers=self.headers)
+        self.assertEqual(saved.status_code, 200, saved.json)
+        self.assertEqual(saved.json, {**original, "plot": replacement})
+        restarted_client = create_app(self.config).test_client()
+        restored = restarted_client.get(experiment_path, headers=self.headers).json["plots"][0]
+        self.assertEqual(restored, {**original, "plot": replacement})
+
+        cleared = {
+            "type": "bar", "title": "", "description": "", "x_key": "k",
+            "x_label": "", "y_label": "", "y_min": None, "y_max": None,
+            "series_labels": {}, "colors": {},
+        }
+        saved = restarted_client.patch(plot_path, json={"plot": cleared}, headers=self.headers)
+        self.assertEqual(saved.status_code, 200, saved.json)
+        self.assertEqual(saved.json, {**original, "plot": cleared})
+        # New application/store instances prove this is persistent replacement,
+        # not only an in-memory chart update or the PATCH response body.
+        restored = create_app(self.config).test_client().get(experiment_path, headers=self.headers).json["plots"][0]
+        self.assertEqual(restored, {**original, "plot": cleared})
+
+    def test_invalid_plot_json_never_writes_or_changes_saved_options(self):
+        from tracker.storage import get_store
+
+        result = self.upload().json
+        experiment_path = f"/api/experiments/{result['experiment_id']}"
+        original = self.client.get(experiment_path, headers=self.headers).json["plots"][0]
+        plot_path = f"/api/plots/{original['id']}"
+        with self.app.app_context():
+            store = get_store()
+
+        invalid_bodies = [
+            '{"plot":{"type":"line",}}',
+            '{"plot":',
+            json.dumps({"plot": None}),
+            json.dumps({"plot": []}),
+            json.dumps({"plot": {"title": 42}}),
+            json.dumps({"plot": {"type": "pie"}}),
+            json.dumps({"plot": {"x_key": "epoch"}}),
+            json.dumps({"plot": {"y_min": 0.9, "y_max": 0.1}}),
+            json.dumps({"plot": {"y_min": "0.1"}}),
+            json.dumps({"plot": {"series_labels": None}}),
+            json.dumps({"plot": {"colors": []}}),
+            json.dumps({"plot": {"series_labels": {"unknown_series": "Other"}}}),
+            json.dumps({"plot": {"colors": {"base_ndcg": "invalid;color"}}}),
+            json.dumps({"plot": {"unsupported_option": True}}),
+            json.dumps({"plot": {"title": "Should not save"}, "data": []}),
+        ]
+        with patch.object(store, "patch_plot", side_effect=AssertionError("Invalid options reached a storage write")) as write:
+            for body in invalid_bodies:
+                with self.subTest(body=body):
+                    response = self.client.patch(plot_path, data=body, content_type="application/json", headers=self.headers)
+                    self.assertEqual(response.status_code, 400, response.json)
+                    self.assertIn("error", response.json)
+            write.assert_not_called()
+        restored = create_app(self.config).test_client().get(experiment_path, headers=self.headers).json["plots"][0]
+        self.assertEqual(restored, original)
+
     def test_persistence_and_signing_key_survive_app_restart(self):
         result = self.upload().json
         token = self.client.post("/api/auth/session", json={"code": "666666"}).json["token"]

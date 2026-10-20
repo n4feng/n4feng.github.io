@@ -150,6 +150,14 @@ All deployments accept JSON requests up to **4 MiB**, with at most **100 plots p
 
 The AWS backend compresses and chunks plot data instead of assuming a full experiment fits in one DynamoDB item. A normalized import batch must compress to at most **3,500 KiB**, split into chunks of at most **250 KiB**. Oversized imports are rejected before publication; failed imports never expose a partial project, experiment, or plot. See [AWS deployment and limits](DEPLOY_AWS.md#data-limits-and-atomic-imports) for storage-specific limits. Split large exports into multiple experiment requests when necessary. The browser and backup tool fetch experiment plots one page at a time to stay below Lambda's buffered response limit.
 
+## Edit saved plot settings
+
+Open **Edit plot details → Series labels, colors, and advanced options**. On **Save details**, the website validates the JSON object and its supported options before sending an update. Explicit JSON values override matching fields above it, including the title, chart type, and axis limits. Invalid JSON or options leave the dialog open and do not save changes.
+
+The website sends the complete resulting settings, including empty label/color maps when omitted from the JSON. Deleting a series entry removes that saved override; deleting `series_labels` or `colors` resets that whole map. Use `{}` to clear both maps while retaining the values in the visible form fields. The server validates the settings again and stores them; reopening the plot or refreshing reads the saved settings.
+
+Direct API `PATCH` requests retain their partial-update behavior: omitted top-level options are preserved, while supplied `series_labels` and `colors` objects replace their entire previous maps. Send `{}` for a map or `null` for an axis bound to clear it.
+
 ## API reference
 
 All routes below except health and session creation require `Authorization: Bearer TOKEN` or `X-Access-Code: CODE`. A session is created with `POST /api/auth/session` and JSON `{"code":"666666"}`; its response contains `token`.
@@ -178,10 +186,11 @@ cd experiment-tracker/server
 python -m unittest discover -s tests -v
 cd ../frontend
 npm ci
+npm test
 npm run build
 ```
 
-The GitHub Actions workflow checks the API and Lambda/DynamoDB paths, builds React, and checks that committed Pages assets match the frontend source. These checks do not deploy AWS resources.
+The GitHub Actions workflow checks the API and Lambda/DynamoDB paths, tests plot-options validation and saving, builds React, and checks that committed Pages assets match the frontend source. These checks do not deploy AWS resources.
 
 ## References
 
