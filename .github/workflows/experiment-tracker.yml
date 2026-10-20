@@ -43,6 +43,9 @@ jobs:
       - name: Install frontend dependencies
         working-directory: experiment-tracker/frontend
         run: npm ci
+      - name: Test plot options validation and saving
+        working-directory: experiment-tracker/frontend
+        run: npm test
       - name: Build React
         working-directory: experiment-tracker/frontend
         run: npm run build
