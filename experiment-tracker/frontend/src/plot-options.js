@@ -1,6 +1,8 @@
+import { validateSeriesOrder } from './series-order.js';
+
 const FIELDS = new Set([
   'type', 'title', 'description', 'x_key', 'x_label', 'y_label',
-  'y_min', 'y_max', 'series_labels', 'colors',
+  'y_min', 'y_max', 'series_labels', 'colors', 'series_order',
 ]);
 const COLOR = /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{1,30}|rgba?\([0-9.,% ]+\)|hsla?\([0-9.,% ]+\))$/;
 
@@ -32,7 +34,9 @@ export function buildPlotOptions({ form, advanced, metric, data, requestPlot = {
   if (unknown.length) throw new Error(`Unknown plot options: ${unknown.sort().join(', ')}.`);
   if (!metric?.x_key) throw new Error('The metric definition is unavailable. Reload the experiment and try again.');
 
-  // Send every supported field so PATCH cannot retain deleted map overrides.
+  // Send complete maps so PATCH cannot retain deleted map overrides.
+  // Leave optional series_order absent unless supplied, preserving saved order
+  // and compatibility with servers that have not enabled column ordering yet.
   // Explicit JSON settings take precedence over the visible form controls.
   const plot = {
     type: form.type,
@@ -62,6 +66,9 @@ export function buildPlotOptions({ form, advanced, metric, data, requestPlot = {
     throw new Error('The y-axis maximum must be larger than the minimum.');
   }
   const series = data ? new Set(data.flatMap(row => Object.keys(row).filter(key => key !== metric.x_key))) : null;
+  if (Object.hasOwn(plot, 'series_order')) {
+    plot.series_order = validateSeriesOrder(plot.series_order, series);
+  }
   for (const key of ['series_labels', 'colors']) {
     const mapping = object(plot[key], `plot.${key}`);
     plot[key] = Object.fromEntries(Object.entries(mapping).map(([name, value]) => {

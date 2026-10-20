@@ -9,7 +9,7 @@ IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 COLOR = re.compile(r"^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{1,30}|rgba?\([0-9.,% ]+\)|hsla?\([0-9.,% ]+\))$")
 PLOT_FIELDS = {
     "type", "title", "description", "x_key", "x_label", "y_label",
-    "y_min", "y_max", "series_labels", "colors",
+    "y_min", "y_max", "series_labels", "colors", "series_order",
 }
 
 
@@ -130,6 +130,17 @@ def plot_options(value, metric, series, previous=None):
             fail(f"plot.{key} must be a finite number or null.")
     if result.get("y_min") is not None and result.get("y_max") is not None and result["y_min"] >= result["y_max"]:
         fail("plot.y_max must be greater than plot.y_min.")
+    # An array records presentation order explicitly; object keys may be sorted
+    # by JSON serializers. Omission preserves old plots, and [] resets to the
+    # automatically discovered order. Unlisted series remain visible.
+    if "series_order" in result:
+        order = result["series_order"]
+        if not isinstance(order, list) or any(not isinstance(key, str) for key in order):
+            fail("plot.series_order must be an array of series names.")
+        if len(order) != len(set(order)):
+            fail("plot.series_order must not contain duplicate series names.")
+        if set(order) - series:
+            fail("plot.series_order contains unknown series names.")
     for key in ("series_labels", "colors"):
         mapping = object_value(result[key], f"plot.{key}")
         if set(mapping) - series:

@@ -92,3 +92,32 @@ test('Validation preserves literal series names and matches Unicode text limits'
   assert.equal(result.series_labels.__proto__, 'Literal series');
   assert.throws(() => buildPlotOptions(options(JSON.stringify({ title: title + '😀' }))), /at most 300/);
 });
+
+test('Saved series order survives unrelated detail edits and explicit empty order resets it', () => {
+  const series_order = ['weighted_ndcg', 'base_ndcg'];
+  const config = buildPlotOptions(options(JSON.stringify({ series_order })));
+  const reopened = buildPlotOptions(options(JSON.stringify({
+    series_labels: config.series_labels, colors: config.colors, series_order: config.series_order,
+  }), { form: { ...form, title: 'Changed title' } }));
+  assert.deepEqual(reopened.series_order, series_order);
+  assert.equal(reopened.title, 'Changed title');
+  assert.deepEqual(buildPlotOptions(options('{"series_order":[]}')).series_order, []);
+  assert.equal(Object.hasOwn(buildPlotOptions(options('{}')), 'series_order'), false);
+});
+
+test('Series order accepts a subset and uploaded order takes precedence', () => {
+  const partial = buildPlotOptions(options('{"series_order":["weighted_ndcg"]}'));
+  assert.deepEqual(partial.series_order, ['weighted_ndcg']);
+  const uploaded = buildPlotOptions(options('{"series_order":["weighted_ndcg"]}', {
+    requestPlot: { series_order: ['base_ndcg', 'weighted_ndcg'] },
+  }));
+  assert.deepEqual(uploaded.series_order, ['base_ndcg', 'weighted_ndcg']);
+});
+
+test('Invalid series orders are rejected before saving any plot options', async () => {
+  let requests = 0;
+  for (const series_order of [null, {}, 'base_ndcg', [null], [4], [''], ['missing'], ['k'], ['base_ndcg', 'base_ndcg']]) {
+    await assert.rejects(savePlotOptions(async () => { requests++; }, 'plot-1', options(JSON.stringify({ series_order }))), /plot\.series_order/);
+  }
+  assert.equal(requests, 0);
+});

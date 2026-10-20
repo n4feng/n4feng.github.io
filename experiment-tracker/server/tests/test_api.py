@@ -264,6 +264,53 @@ class TrackerContract:
         restored = create_app(self.config).test_client().get(experiment_path, headers=self.headers).json["plots"][0]
         self.assertEqual(restored, {**original, "plot": cleared})
 
+    def test_series_order_persists_without_changing_data_or_other_plot_options(self):
+        result = self.upload().json
+        experiment_path = f"/api/experiments/{result['experiment_id']}"
+        original = self.client.get(experiment_path, headers=self.headers).json["plots"][0]
+        self.assertNotIn("series_order", original["plot"])
+        plot_path = f"/api/plots/{original['id']}"
+        order = ["weighted_ndcg", "cosine_ndcg", "base_ndcg"]
+        saved = self.client.patch(plot_path, json={"plot": {"series_order": order}}, headers=self.headers)
+        self.assertEqual(saved.status_code, 200, saved.json)
+        expected = {**original, "plot": {**original["plot"], "series_order": order}}
+        self.assertEqual(saved.json, expected)
+
+        restarted = create_app(self.config).test_client()
+        self.assertEqual(restarted.get(experiment_path, headers=self.headers).json["plots"][0], expected)
+        # Editing labels or captions must not silently restore automatic order.
+        edits = {"description": "Changed after reordering", "series_labels": {"base_ndcg": "Base PPL"}}
+        updated = restarted.patch(plot_path, json={"plot": edits}, headers=self.headers)
+        self.assertEqual(updated.status_code, 200, updated.json)
+        expected["plot"].update(edits)
+        self.assertEqual(create_app(self.config).test_client().get(experiment_path, headers=self.headers).json["plots"][0], expected)
+
+        reset = restarted.patch(plot_path, json={"plot": {"series_order": []}}, headers=self.headers)
+        self.assertEqual(reset.status_code, 200, reset.json)
+        expected["plot"]["series_order"] = []
+        self.assertEqual(create_app(self.config).test_client().get(experiment_path, headers=self.headers).json["plots"][0], expected)
+
+    def test_import_accepts_partial_series_order_and_keeps_all_series(self):
+        payload = copy.deepcopy(self.sample)
+        payload["metrics"][0]["plot"]["series_order"] = ["weighted_ndcg", "cosine_ndcg"]
+        result = self.upload(payload)
+        self.assertEqual(result.status_code, 201, result.json)
+        restored = create_app(self.config).test_client().get(
+            f"/api/experiments/{result.json['experiment_id']}", headers=self.headers,
+        ).json["plots"][0]
+        self.assertEqual(restored["plot"]["series_order"], ["weighted_ndcg", "cosine_ndcg"])
+        self.assertEqual(restored["data"], payload["metrics"][0]["data"])
+
+    def test_invalid_series_order_rejects_import_without_creating_data(self):
+        for order in (None, "base_ndcg", {}, [None], [1], [True], [[]], [{}], ["base_ndcg", "base_ndcg"], ["missing"], ["k"]):
+            with self.subTest(order=order):
+                payload = copy.deepcopy(self.sample)
+                payload["metrics"][0]["plot"]["series_order"] = order
+                result = self.upload(payload)
+                self.assertEqual(result.status_code, 400, result.json)
+                self.assertIn("series_order", result.json["error"])
+        self.assertEqual(self.client.get("/api/projects", headers=self.headers).json["projects"], [])
+
     def test_invalid_plot_json_never_writes_or_changes_saved_options(self):
         from tracker.storage import get_store
 
@@ -291,6 +338,10 @@ class TrackerContract:
             json.dumps({"plot": {"unsupported_option": True}}),
             json.dumps({"plot": {"title": "Should not save"}, "data": []}),
         ]
+        invalid_bodies.extend(json.dumps({"plot": {"series_order": order}}) for order in (
+            None, "base_ndcg", {}, [None], [1], [True], [[]], [{}],
+            ["base_ndcg", "base_ndcg"], ["missing"], ["k"],
+        ))
         with patch.object(store, "patch_plot", side_effect=AssertionError("Invalid options reached a storage write")) as write:
             for body in invalid_bodies:
                 with self.subTest(body=body):
