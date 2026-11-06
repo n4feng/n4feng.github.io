@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#153f3c" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="description" content="An independent human review of document evidence for the GenVsJudge research study." />
+    <title>GenVsJudge · Human evaluation</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <header class="site-header shell">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">G<span>V</span>J</span><div>GenVsJudge<span class="brand-caption">INDEPENDENT HUMAN EVALUATION</span></div></div>
+      <span class="study-badge"><span aria-hidden="true"></span> Research audit</span>
+    </header>
+
+    <main id="main-content" class="shell">
+      <section class="introduction">
+        <div><p class="eyebrow">A small review. A meaningful contribution.</p><h1>Does the document<br />support the answer?</h1><p class="intro-copy">Help us assess the evidence behind a question and its reference answer. Your independent judgment helps make our research more reliable.</p></div>
+        <aside class="thank-you"><span class="thank-you-icon" aria-hidden="true">✳</span><h2>Thank you for taking part.</h2><p>Every careful review counts. You can contribute a few questions now and return later with the same name.</p><span class="target-note">300 questions · 3 datasets · 3 reviewers per question</span></aside>
+      </section>
+
+      <section class="progress-section" aria-labelledby="progress-title">
+        <div class="section-topline"><h2 id="progress-title">Our shared progress</h2><span id="progress-status">Connect to see live counts</span></div>
+        <div class="progress-grid">
+          <div class="minimum-card"><div class="metric-label" id="minimum-label">Minimum reviews across all 300 questions</div><div class="minimum-value"><strong id="minimum-count">—</strong><span>/ <span id="target-count">3</span></span></div><p id="minimum-description">The least-reviewed question sets this number. Questions with no reviews are included.</p></div>
+          <div class="coverage-card"><div class="metric-label">Questions with at least <span id="coverage-target">3</span> reviews</div><div class="coverage-value"><strong id="covered-count">—</strong><span>/ <span id="question-count">300</span></span></div><progress id="coverage-progress" max="300" value="0" aria-label="Questions that have reached the review target"></progress><p><strong id="remaining-count">—</strong> more reviews needed to reach the target</p></div>
+          <div class="total-card"><div class="metric-label">Reviews contributed</div><strong class="total-value" id="total-count">—</strong><p>From everyone taking part</p><div class="personal-count"><span>Your completed questions</span><strong id="personal-count">—</strong></div></div>
+        </div>
+        <div class="dataset-progress" id="dataset-progress" aria-label="Progress by dataset"></div>
+      </section>
+
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+      <div id="error" class="notice error" role="alert" hidden></div>
+
+      <section class="join-panel" id="join-panel" aria-labelledby="join-title">
+        <div class="join-copy"><p class="eyebrow">Before you begin</p><h2 id="join-title">Join the audit</h2><p>Enter your name and the Lambda server URL supplied by the study organizer.</p><p class="privacy-note">Your name and judgments are stored for this study. Other participants cannot see them. Use the same name each time so a question counts only once per reviewer.</p></div>
+        <form id="join-form" class="join-form">
+          <label for="reviewer-name">Your name</label><input id="reviewer-name" name="name" type="text" maxlength="80" autocomplete="name" placeholder="e.g. Alex Chen" required />
+          <label for="server-url">Lambda server URL</label><input id="server-url" name="server" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://…lambda-url.us-east-1.on.aws/" required aria-describedby="server-help" /><small id="server-help">Use the HTTPS URL shared by the organizer. No access code is required.</small>
+          <button class="button primary" id="join-button" type="submit">Start reviewing <span aria-hidden="true">→</span></button>
+        </form>
+      </section>
+
+      <section id="review-panel" class="review-panel" aria-labelledby="question-title" hidden>
+        <div class="review-topline"><div><span class="eyebrow">Your next question</span><span id="dataset-label" class="dataset-pill"></span></div><div class="connected-as">Reviewing as <strong id="connected-name"></strong><button id="change-session" class="text-button" type="button">Change</button></div></div>
+        <details class="instructions"><summary>How to review the evidence</summary><div><p>Read the question, the reference answer, and both documents. Judge each document independently using only the text shown.</p><ul><li><strong>Supports:</strong> provides sufficient evidence for the reference answer to this question.</li><li><strong>Partial evidence:</strong> provides a relevant fact or one reasoning step, but is insufficient on its own. This is especially relevant for questions requiring multiple documents.</li><li><strong>Does not support:</strong> provides no useful supporting evidence, or contradicts the reference answer.</li><li><strong>Unsure:</strong> the evidence or question is ambiguous, or you cannot confidently assess it.</li></ul><p>Merely containing the answer’s words is not sufficient. Both documents may support the answer, and neither has to. The original labels and other reviewers’ choices are hidden.</p></div></details>
+        <div class="question-card"><span class="eyebrow">Question</span><h2 id="question-title" tabindex="-1"></h2><div class="answer-box"><span>Reference answer</span><p id="reference-answer"></p></div><span id="question-id" class="question-id"></span></div>
+        <form id="review-form">
+          <div class="document-grid">
+            <article class="document-card"><div class="document-header"><span class="document-letter">A</span><h3>Document A</h3><span class="blind-label">Labels hidden</span></div><div class="document-text" id="document-a" tabindex="0" aria-label="Document A text"></div><fieldset id="ratings-a"><legend>Does Document A support the answer?</legend><label class="rating-option"><input type="radio" name="rating_a" value="supports" required /><span><strong>Supports</strong><small>Sufficient evidence for the answer</small></span></label><label class="rating-option"><input type="radio" name="rating_a" value="partial" /><span><strong>Partial evidence</strong><small>Useful evidence, insufficient alone</small></span></label><label class="rating-option"><input type="radio" name="rating_a" value="does_not_support" /><span><strong>Does not support</strong><small>No useful support, or contradiction</small></span></label><label class="rating-option"><input type="radio" name="rating_a" value="unsure" /><span><strong>Unsure</strong><small>I cannot confidently judge</small></span></label></fieldset></article>
+            <article class="document-card"><div class="document-header"><span class="document-letter">B</span><h3>Document B</h3><span class="blind-label">Labels hidden</span></div><div class="document-text" id="document-b" tabindex="0" aria-label="Document B text"></div><fieldset id="ratings-b"><legend>Does Document B support the answer?</legend><label class="rating-option"><input type="radio" name="rating_b" value="supports" required /><span><strong>Supports</strong><small>Sufficient evidence for the answer</small></span></label><label class="rating-option"><input type="radio" name="rating_b" value="partial" /><span><strong>Partial evidence</strong><small>Useful evidence, insufficient alone</small></span></label><label class="rating-option"><input type="radio" name="rating_b" value="does_not_support" /><span><strong>Does not support</strong><small>No useful support, or contradiction</small></span></label><label class="rating-option"><input type="radio" name="rating_b" value="unsure" /><span><strong>Unsure</strong><small>I cannot confidently judge</small></span></label></fieldset></article>
+          </div>
+          <div class="notes-box"><label for="review-notes">Evidence or comments <span>optional</span></label><textarea id="review-notes" maxlength="2000" rows="3" placeholder="A short quotation or explanation is helpful, especially for partial support or uncertainty."></textarea></div>
+          <div class="submit-row"><p id="submission-help">Choose one judgment for each document. Your review will be saved before the next question appears.</p><div class="submit-actions"><button type="button" class="button secondary" id="skip-button">Skip for now</button><button type="submit" class="button primary" id="submit-button">Save & next question <span aria-hidden="true">→</span></button></div></div>
+        </form>
+      </section>
+
+      <section id="finished-panel" class="finished-panel" hidden tabindex="-1"><span class="thank-you-icon" aria-hidden="true">✳</span><p class="eyebrow">Your contribution matters</p><h2>Thank you for your reviews.</h2><p id="finished-description"></p><button id="return-button" class="button secondary" type="button">Check for another question</button><button id="finish-change-session" class="text-button" type="button">Change reviewer or server</button></section>
+      <footer><span>GenVsJudge · Document evidence audit</span><p>Thank you to everyone who contributes their time and judgment.</p></footer>
+    </main>
+    <noscript><p class="noscript">Please enable JavaScript to connect to the audit and submit reviews.</p></noscript>
+  </body>
+</html>

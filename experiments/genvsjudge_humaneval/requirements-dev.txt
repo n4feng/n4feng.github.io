@@ -1,0 +1,4 @@
+-r requirements.txt
+moto[dynamodb]>=5,<6
+pytest>=8,<10
+cfn-lint>=1,<2

@@ -156,6 +156,14 @@ include:
   - _pages
   - files
 exclude:
+  - experiments/genvsjudge_humaneval/server
+  - experiments/genvsjudge_humaneval/scripts
+  - experiments/genvsjudge_humaneval/tests
+  - experiments/genvsjudge_humaneval/data
+  - experiments/genvsjudge_humaneval/exports
+  - experiments/genvsjudge_humaneval/README.md
+  - experiments/genvsjudge_humaneval/requirements-dev.txt
+  - experiments/genvsjudge_humaneval/requirements.txt
   - experiment-tracker
   - "*.sublime-project"
   - "*.sublime-workspace"
