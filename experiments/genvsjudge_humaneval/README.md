@@ -395,7 +395,117 @@ also remain until explicitly removed. There is no TTL on research responses.
 AWS references: [CloudShell launch and file upload](https://docs.aws.amazon.com/cloudshell/latest/userguide/getting-started.html),
 [CloudShell credentials and tools](https://docs.aws.amazon.com/cloudshell/latest/userguide/welcome.html).
 
-## 3. Export private review records
+## 3. Check current progress and audit results
+
+`scripts/check_results.py` prints results for **NQ, HotpotQA, MS MARCO, and the
+whole study**. It defaults to the deployed audit server:
+
+```text
+https://fisjwglhwhqjmox7xgulvddsge0zuibi.lambda-url.us-east-1.on.aws
+```
+
+This is a read-only reporting script. It does not submit judgments, change
+DynamoDB records, or require a Lambda redeployment. The public API provides
+progress counts; document-rating results require your AWS credentials because
+individual responses are intentionally not exposed by the public API.
+
+### Quick progress check (no AWS credentials required)
+
+From the website repository root, run with Python 3.10+:
+
+```bash
+python3 experiments/genvsjudge_humaneval/scripts/check_results.py --progress-only
+```
+
+This uses only the Python standard library and reads `/api/health` and
+`/api/stats`. It shows the total reviews, minimum reviews, and number of questions
+with at least three reviews, for each dataset and in total. The global count of
+remaining reviews is also reported. Fields unavailable from the public API are
+shown as unavailable rather than estimated. Untouched questions count toward
+the minimum, so it stays zero until every question has at least one review.
+
+### Full rating results from DynamoDB (CloudShell)
+
+Open CloudShell in the AWS account used for deployment. Use the same unchanged
+`questions.json` that you uploaded for this study, then run:
+
+```bash
+cd "$HOME/n4feng.github.io"
+git pull --ff-only
+source experiments/genvsjudge_humaneval/.venv/bin/activate
+python -m pip install -r experiments/genvsjudge_humaneval/requirements.txt
+
+python experiments/genvsjudge_humaneval/scripts/check_results.py \
+  --questions "$HOME/questions.json"
+```
+
+If the checkout or virtual environment is no longer available, recreate it
+using deployment Steps 3 and 5. CloudShell supplies your signed-in credentials.
+The default stack is `genvsjudge-humaneval` and the default region is
+`us-east-1`. The operator needs `cloudformation:DescribeStacks` and
+`dynamodb:Query` on the audit table. When `--questions` is omitted, the script
+looks for `experiments/genvsjudge_humaneval/data/questions.json`, then
+`$HOME/questions.json`.
+
+The full report includes:
+
+- Review counts, questions with at least three reviews, minimum reviews,
+  remaining reviews, and distinct self-reported reviewer counts, by dataset
+  and in total. Aggregate JSON also includes the number of questions with any
+  review and the maximum and mean reviews per question.
+- **Vote counts** for `supports`, `partial`, `does_not_support`, and `unsure`,
+  separately for originally positive and negative documents.
+- **Question-level majority counts**, separately for both document roles.
+  A majority requires at least three reviews and strictly more than half of
+  all submitted ratings agreeing. Questions below three reviews and questions
+  with enough reviews but no strict majority are reported separately.
+
+One saved review rates both documents; it is not two reviews. Votes are not
+question counts. Total distinct reviewers are deduplicated across datasets,
+and ties or `unsure` judgments are not silently converted into support labels.
+The original positive/negative roles come from saved backend ratings, not the
+randomized A/B display order. The report prints no names, individual judgments,
+or participant IDs. These are descriptive audit judgments, not a guaranteed
+false-negative rate or automatic corrections to benchmark labels.
+
+The script verifies the live study ID and question count against your manifest.
+When resolving the table through CloudFormation, it also checks that the stack's
+`ApiUrl` matches the server URL. A mismatch stops the report to avoid querying a
+different deployment by mistake.
+
+For another stack, AWS profile, region, or server, pass the relevant overrides:
+
+```bash
+python experiments/genvsjudge_humaneval/scripts/check_results.py \
+  --questions /path/to/questions.json \
+  --stack-name genvsjudge-humaneval \
+  --region us-east-1 \
+  --profile my-aws-profile \
+  --server-url https://fisjwglhwhqjmox7xgulvddsge0zuibi.lambda-url.us-east-1.on.aws
+```
+
+Omit `--profile` in CloudShell. You can use `--table-name` instead of
+`--stack-name` if you already know the exact DynamoDB table; this avoids the
+CloudFormation lookup and its permission requirement. The manifest and response
+identities are still checked.
+
+Add `--json` to print aggregate JSON instead of terminal tables. To save a
+private, aggregate-only snapshot in the existing ignored exports directory:
+
+```bash
+mkdir -p experiments/genvsjudge_humaneval/exports
+python experiments/genvsjudge_humaneval/scripts/check_results.py \
+  --questions "$HOME/questions.json" \
+  --json > experiments/genvsjudge_humaneval/exports/current_results.json
+```
+
+The DynamoDB query follows all result pages and derives counts from saved
+responses. Each page is strongly consistent, but the full report is not an
+atomic snapshot while participants continue submitting. Rerun the command for
+an updated report. Use the export script below when you need individual records
+or question IDs for analysis.
+
+## 4. Export private review records
 
 Run with AWS credentials; there is intentionally no public endpoint that lists
 participant names or votes:
@@ -429,6 +539,7 @@ Original IDs and pair indexes allow joining reviews to saved PPL scores later.
 - `scripts/sample_questions.py`: deterministic sampler and text hydration.
 - `scripts/deploy_aws.py`, `scripts/template.json`: AWS packaging and deployment.
 - `scripts/export_responses.py`: authenticated offline export.
+- `scripts/check_results.py`: live progress and authenticated aggregate results.
 - `tests/`: sampling, API, DynamoDB, deployment and reporting checks.
 
 ```bash
@@ -449,3 +560,4 @@ URL and CORS are not authentication or protection against deliberate abuse.
 The main tracker build preserves sibling experiment directories so rebuilding
 `/experiments/` cannot erase this module. Source/scripts/data are excluded from
 the generated Pages site, and no navigation link is added.
+
